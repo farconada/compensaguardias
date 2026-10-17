@@ -49,7 +49,25 @@
     activeTab: 'tab-calendar',
     tableFilter: 'all',
     tableSort: 'chrono',
-    theme: localStorage.getItem('compensaguardias_theme') || 'light'
+    theme: localStorage.getItem('compensaguardias_theme') || 'light',
+
+    // Módulo de Asignación y Reparto de Guardias
+    teamMembers: (function () {
+      if (typeof AssignmentEngine !== 'undefined' && AssignmentEngine.DEFAULT_MEMBERS) {
+        return JSON.parse(JSON.stringify(AssignmentEngine.DEFAULT_MEMBERS));
+      }
+      return [
+        { id: 'm1', name: 'Carlos Santana', colorIndex: 0 },
+        { id: 'm2', name: 'Lucía Méndez', colorIndex: 1 },
+        { id: 'm3', name: 'David Romero', colorIndex: 2 },
+        { id: 'm4', name: 'Elena Navarro', colorIndex: 3 }
+      ];
+    })(),
+    assignmentStrategy: 'economic', // 'economic', 'holidays', 'mixed', 'round_robin'
+    holidaysEquivalenceEnabled: true,
+    vacationWeight: 0.5,
+    assignments: {}, // weekKey -> memberId
+    teamMetrics: null
   };
 
   // Presets de ponderaciones
@@ -120,8 +138,9 @@
 
   /**
    * Recalcula todas las tasas y actualiza toda la interfaz
+   * @param {boolean} [forceReassign=false] - Si es true, vuelve a ejecutar el algoritmo de reparto
    */
-  function recalculate() {
+  function recalculate(forceReassign = false) {
     if (!state.calendar) return;
 
     // Calcular distribución ponderada con el motor
@@ -132,6 +151,46 @@
       strictCeiling: state.strictCeiling
     });
 
+    // Preparar datos de semanas para el módulo de asignación
+    if (typeof AssignmentEngine !== 'undefined') {
+      const weeksData = AssignmentEngine.prepareWeeksData(
+        state.calendar.weeksList,
+        state.calcResult.precios,
+        {
+          vacationWeight: state.vacationWeight,
+          holidaysEquivalenceEnabled: state.holidaysEquivalenceEnabled
+        }
+      );
+
+      // Si no hay asignaciones, se forzó reasignación, o faltan semanas por asignar:
+      const totalWeeks = state.calendar.weeksList.length;
+      const assignedCount = Object.keys(state.assignments).length;
+      const validMemberIds = new Set(state.teamMembers.map(m => m.id));
+
+      let hasInvalidAssignments = false;
+      for (const [wKey, mId] of Object.entries(state.assignments)) {
+        if (!validMemberIds.has(mId)) {
+          hasInvalidAssignments = true;
+          break;
+        }
+      }
+
+      if (forceReassign || assignedCount !== totalWeeks || hasInvalidAssignments) {
+        state.assignments = AssignmentEngine.runStrategy(
+          state.assignmentStrategy,
+          weeksData,
+          state.teamMembers
+        );
+      }
+
+      // Calcular métricas del equipo con las asignaciones actuales
+      state.teamMetrics = AssignmentEngine.calculateTeamMetrics(
+        weeksData,
+        state.assignments,
+        state.teamMembers
+      );
+    }
+
     // Renderizar componentes
     renderBudgetControls();
     renderWeightControls();
@@ -139,6 +198,7 @@
     renderCalendarGrid();
     renderWeekInspector();
     renderWeeksTable();
+    renderTeamAssignmentTab();
     renderAuditPanel();
   }
 
@@ -292,11 +352,24 @@
           `;
         }).join('');
 
+        const assignedMemberId = state.assignments ? state.assignments[w.weekKey] : null;
+        const member = state.teamMembers ? state.teamMembers.find(m => m.id === assignedMemberId) : null;
+        const pal = member && typeof AssignmentEngine !== 'undefined'
+          ? AssignmentEngine.MEMBER_PALETTE[member.colorIndex % AssignmentEngine.MEMBER_PALETTE.length]
+          : null;
+
+        const assignedMicroTag = member && pal ? `
+          <span class="week-assignee-micro" style="background-color: ${pal.color}; color: #ffffff;" title="Asignada a ${member.name}">
+            ${member.name.split(' ')[0]}
+          </span>
+        ` : '';
+
         return `
           <tr class="${weekCls}" data-week-key="${w.weekKey}">
             <td>
-              <span class="week-num-cell ${isSelectedWeek ? 'selected' : ''}" title="Semana ${w.weekNum} (Clic para inspeccionar)">
-                W${String(w.weekNum).padStart(2, '0')}
+              <span class="week-num-cell ${isSelectedWeek ? 'selected' : ''}" title="Semana ${w.weekNum} ${member ? '— Asignada a ' + member.name : ''} (Clic para inspeccionar)">
+                <span>W${String(w.weekNum).padStart(2, '0')}</span>
+                ${assignedMicroTag}
               </span>
             </td>
             ${daysCellsHtml}
@@ -384,6 +457,36 @@
       }
     }
 
+    // Responsable asignado en el Inspector
+    const assigneeSelect = document.getElementById('inspectorAssigneeSelect');
+    const assigneeBadge = document.getElementById('inspectorAssigneeBadge');
+    const assigneeDot = document.getElementById('inspectorAssigneeDot');
+    const assigneeName = document.getElementById('inspectorAssigneeName');
+
+    const currentAssignedId = state.assignments ? state.assignments[week.weekKey] : null;
+    const currentMember = state.teamMembers ? state.teamMembers.find(m => m.id === currentAssignedId) : null;
+    const currentPalette = currentMember && typeof AssignmentEngine !== 'undefined'
+      ? AssignmentEngine.MEMBER_PALETTE[currentMember.colorIndex % AssignmentEngine.MEMBER_PALETTE.length]
+      : null;
+
+    if (assigneeName && currentMember) {
+      assigneeName.textContent = currentMember.name;
+    }
+    if (assigneeDot && currentPalette) {
+      assigneeDot.style.backgroundColor = currentPalette.color;
+    }
+    if (assigneeBadge && currentPalette) {
+      assigneeBadge.style.backgroundColor = currentPalette.bg;
+      assigneeBadge.style.borderColor = currentPalette.border;
+      assigneeBadge.style.color = currentPalette.textDark;
+    }
+
+    if (assigneeSelect && state.teamMembers) {
+      assigneeSelect.innerHTML = state.teamMembers.map(m => {
+        return `<option value="${m.id}" ${m.id === currentAssignedId ? 'selected' : ''}>${m.name}</option>`;
+      }).join('');
+    }
+
     // Lista desglosada día por día
     if (listEl) {
       listEl.innerHTML = week.fullWeekDays.map(d => {
@@ -452,6 +555,16 @@
       const optFormat = { day: '2-digit', month: '2-digit' };
       const rangeStr = `${dStart.toLocaleDateString('es-ES', optFormat)} - ${dEnd.toLocaleDateString('es-ES', optFormat)}`;
 
+      const assignedId = state.assignments ? state.assignments[w.weekKey] : null;
+      const assignedMember = state.teamMembers ? state.teamMembers.find(m => m.id === assignedId) : null;
+      const pal = assignedMember && typeof AssignmentEngine !== 'undefined'
+        ? AssignmentEngine.MEMBER_PALETTE[assignedMember.colorIndex % AssignmentEngine.MEMBER_PALETTE.length]
+        : null;
+
+      const memberOptionsHtml = (state.teamMembers || []).map(m => {
+        return `<option value="${m.id}" ${m.id === assignedId ? 'selected' : ''}>${m.name}</option>`;
+      }).join('');
+
       return `
         <tr class="${isSelected ? 'selected' : ''}" data-week-key="${w.weekKey}">
           <td class="col-mono">W${String(w.weekNum).padStart(2, '0')}</td>
@@ -465,6 +578,15 @@
           <td class="col-mono" style="font-size: 0.95rem;">${currencyFormatter.format(w.totalCost)}</td>
           <td class="${w.diffBase > 0 ? 'text-danger' : (w.diffBase < 0 ? 'text-success' : 'text-muted')} col-mono">
             ${w.diffBase >= 0 ? '+' : ''}${currencyFormatter.format(w.diffBase)}
+          </td>
+          <td>
+            <select 
+              class="assignee-select-cell week-table-assignee-select" 
+              data-week-key="${w.weekKey}"
+              style="${pal ? 'border-left: 3px solid ' + pal.color + ';' : ''}"
+              title="Cambiar responsable de la guardia">
+              ${memberOptionsHtml}
+            </select>
           </td>
           <td>
             <button class="btn btn-sm btn-subtle btn-inspect-week" data-week-key="${w.weekKey}">
@@ -490,6 +612,316 @@
     if (elStd) elStd.textContent = countStd;
     if (elFest) elFest.textContent = countFest;
     if (elCier) elCier.textContent = countCier;
+  }
+
+  /**
+   * Renderiza el módulo completo de Asignación y Reparto de Guardias
+   */
+  function renderTeamAssignmentTab() {
+    if (!state.calendar || !state.teamMetrics || typeof AssignmentEngine === 'undefined') return;
+
+    const metrics = state.teamMetrics;
+    const disp = metrics.dispersion;
+    const avg = metrics.averages;
+    const tot = metrics.totals;
+
+    // 1. Controles de configuración superior
+    const selectStrategy = document.getElementById('selectAssignmentStrategy');
+    if (selectStrategy && document.activeElement !== selectStrategy) {
+      selectStrategy.value = state.assignmentStrategy;
+    }
+
+    const toggleEq = document.getElementById('toggleHolidayEquivalence');
+    if (toggleEq) {
+      toggleEq.checked = state.holidaysEquivalenceEnabled;
+    }
+
+    const inputWeight = document.getElementById('inputVacationWeight');
+    const labelWeight = document.getElementById('labelVacationWeightVal');
+    if (inputWeight && document.activeElement !== inputWeight) {
+      inputWeight.value = state.vacationWeight;
+      inputWeight.disabled = !state.holidaysEquivalenceEnabled;
+    }
+    if (labelWeight) {
+      labelWeight.textContent = Number(state.vacationWeight).toFixed(1);
+    }
+
+    // 2. Gestión dinámica del equipo (1 a 6 miembros)
+    const teamContainer = document.getElementById('teamMembersList');
+    const teamBadge = document.getElementById('teamCountBadge');
+    const btnAdd = document.getElementById('btnAddMember');
+
+    if (teamBadge) {
+      teamBadge.textContent = `${state.teamMembers.length} / 6 miembros`;
+    }
+    if (btnAdd) {
+      btnAdd.disabled = state.teamMembers.length >= 6;
+      btnAdd.title = state.teamMembers.length >= 6
+        ? 'Límite máximo alcanzado (6 miembros)'
+        : 'Añadir una nueva persona al equipo';
+    }
+
+    if (teamContainer) {
+      const canDelete = state.teamMembers.length > 1;
+      teamContainer.innerHTML = state.teamMembers.map((m, idx) => {
+        const pal = AssignmentEngine.MEMBER_PALETTE[m.colorIndex % AssignmentEngine.MEMBER_PALETTE.length];
+        const stats = metrics.memberStats.find(s => s.id === m.id);
+        const initials = m.name ? m.name.split(' ').map(n => n[0]).join('').substring(0, 2).toUpperCase() : `P${idx + 1}`;
+
+        return `
+          <div class="member-edit-card" style="border-left: 4px solid ${pal.color};">
+            <div class="member-avatar" style="background-color: ${pal.color};" title="Color: ${pal.name}">
+              ${initials}
+            </div>
+            <div style="flex: 1; display: flex; flex-direction: column; gap: 0.2rem; min-width: 0;">
+              <input 
+                type="text" 
+                class="member-input-name" 
+                data-member-id="${m.id}" 
+                value="${m.name}" 
+                placeholder="Nombre del miembro"
+                maxlength="30"
+                title="Editar nombre del miembro">
+              <div style="font-size: 0.725rem; color: var(--text-muted); display: flex; gap: 0.6rem;">
+                <span><strong>${stats ? stats.weeksCount : 0}</strong> sem.</span>
+                <span><strong>${stats ? stats.festivosEquiv : 0}</strong> fest. eq.</span>
+                <span class="col-mono">${stats ? currencyFormatter.format(stats.totalCost) : '0 €'}</span>
+              </div>
+            </div>
+            <button 
+              type="button" 
+              class="btn-delete-member" 
+              data-member-id="${m.id}" 
+              title="${canDelete ? 'Eliminar ' + m.name + ' del equipo' : 'Mínimo 1 miembro en el equipo'}"
+              ${!canDelete ? 'disabled' : ''}>
+              🗑️
+            </button>
+          </div>
+        `;
+      }).join('');
+    }
+
+    // 3. Tarjetas KPI de dispersión y métricas globales
+    const kpisContainer = document.getElementById('assignmentKpisGrid');
+    if (kpisContainer) {
+      let qualityBadge = '<span class="badge badge-success">⚖️ Reparto Equitativo</span>';
+      let qualityDesc = 'La diferencia entre miembros es mínima.';
+
+      if (state.assignmentStrategy === 'round_robin') {
+        qualityBadge = '<span class="badge badge-warning">🔄 Diagnóstico Round-Robin</span>';
+        qualityDesc = 'Asignación secuencial fija sin balancear.';
+      } else if (state.assignmentStrategy === 'economic') {
+        qualityBadge = disp.costRange < 50
+          ? '<span class="badge badge-success">🛡️ Máxima Equidad Económica</span>'
+          : '<span class="badge badge-primary">💰 Balance Económico</span>';
+        qualityDesc = `Rango entre ingresos de sólo ${currencyFormatter.format(disp.costRange)}.`;
+      } else if (state.assignmentStrategy === 'holidays') {
+        qualityBadge = disp.holidaysRange <= 0.5
+          ? '<span class="badge badge-success">🏖️ Festivos Perfectamente Balanceados</span>'
+          : '<span class="badge badge-purple">🏖️ Equidad en Festivos</span>';
+        qualityDesc = `Rango de festivos equivalentes: ${disp.holidaysRange.toFixed(1)}.`;
+      } else if (state.assignmentStrategy === 'mixed') {
+        qualityBadge = '<span class="badge badge-success">⚖️ Compromiso Multiobjetivo</span>';
+        qualityDesc = 'Balance óptimo conjunto de ingresos y festivos.';
+      }
+
+      kpisContainer.innerHTML = `
+        <div class="kpi-card">
+          <div class="kpi-label">
+            <span>Dispersión de Ingresos</span>
+            <span class="badge badge-subtle">Δ Máx - Mín</span>
+          </div>
+          <div class="kpi-value ${disp.costRange > 500 ? 'text-danger' : 'text-success'}">
+            ${currencyFormatter.format(disp.costRange)}
+          </div>
+          <div class="kpi-subtext">
+            Desviación típica: <strong>σ = ${currencyFormatter.format(disp.costStdDev)}</strong>
+          </div>
+        </div>
+
+        <div class="kpi-card">
+          <div class="kpi-label">
+            <span>Dispersión Festivos Eq.</span>
+            <span class="badge badge-subtle">Δ Festivos</span>
+          </div>
+          <div class="kpi-value ${disp.holidaysRange > 3 ? 'text-danger' : 'text-success'}">
+            ${disp.holidaysRange.toFixed(1)} fest.
+          </div>
+          <div class="kpi-subtext">
+            Desviación típica: <strong>σ = ${disp.holidaysStdDev.toFixed(2)}</strong>
+          </div>
+        </div>
+
+        <div class="kpi-card">
+          <div class="kpi-label">
+            <span>Medias por Miembro</span>
+            <span class="badge badge-subtle">Promedio</span>
+          </div>
+          <div class="kpi-value">
+            ${currencyFormatter.format(avg.cost)}
+          </div>
+          <div class="kpi-subtext">
+            <strong>${avg.weeks.toFixed(1)} sem.</strong> y <strong>${avg.festivosEquiv.toFixed(1)} festivos eq.</strong>
+          </div>
+        </div>
+
+        <div class="kpi-card">
+          <div class="kpi-label">
+            <span>Criterio y Balance</span>
+            ${qualityBadge}
+          </div>
+          <div style="font-size: 0.95rem; font-weight: 700; color: var(--text-primary); margin-top: 0.35rem; margin-bottom: 0.25rem;">
+            ${selectStrategy ? selectStrategy.options[selectStrategy.selectedIndex].text.split('(')[0] : ''}
+          </div>
+          <div class="kpi-subtext">
+            ${qualityDesc}
+          </div>
+        </div>
+      `;
+    }
+
+    // 4. Tabla resumen anual por persona
+    const tbodySummary = document.getElementById('teamSummaryTableBody');
+    if (tbodySummary) {
+      tbodySummary.innerHTML = metrics.memberStats.map(m => {
+        const pal = m.palette;
+        const initials = m.name ? m.name.split(' ').map(n => n[0]).join('').substring(0, 2).toUpperCase() : 'P';
+        const costPct = tot.cost > 0 ? (m.totalCost / tot.cost) * 100 : 0;
+
+        // Formato delta €
+        let deltaCostCls = 'delta-balanced';
+        let deltaCostSign = '±';
+        if (Math.abs(m.diffCostVsMean) >= 0.05) {
+          if (m.diffCostVsMean > 0) {
+            deltaCostCls = 'delta-positive';
+            deltaCostSign = '+';
+          } else {
+            deltaCostCls = 'delta-negative';
+            deltaCostSign = '';
+          }
+        }
+        const deltaCostText = `${deltaCostSign}${currencyFormatter.format(m.diffCostVsMean)} (${m.diffCostPctVsMean >= 0 ? '+' : ''}${m.diffCostPctVsMean.toFixed(1)}%)`;
+
+        // Formato delta festivos
+        let deltaFestCls = 'delta-balanced';
+        let deltaFestSign = '±';
+        if (Math.abs(m.diffHolidaysVsMean) >= 0.05) {
+          if (m.diffHolidaysVsMean > 0) {
+            deltaFestCls = 'delta-fest-pos';
+            deltaFestSign = '+';
+          } else {
+            deltaFestCls = 'delta-fest-neg';
+            deltaFestSign = '';
+          }
+        }
+        const deltaFestText = `${deltaFestSign}${m.diffHolidaysVsMean.toFixed(1)}`;
+
+        return `
+          <tr>
+            <td>
+              <div style="display: flex; align-items: center; gap: 0.5rem;">
+                <span class="member-avatar" style="background-color: ${pal.color};">${initials}</span>
+                <span style="font-weight: 700; color: var(--text-primary);">${m.name}</span>
+              </div>
+            </td>
+            <td style="text-align: center;" class="col-mono">${m.weeksCount} sem.</td>
+            <td style="text-align: center;" class="col-mono">${m.festivosPuros}</td>
+            <td style="text-align: center;" class="col-mono">${m.festivosEquiv.toFixed(1)}</td>
+            <td style="text-align: right; font-weight: 800;" class="col-mono">${currencyFormatter.format(m.totalCost)}</td>
+            <td style="text-align: center;">
+              <span class="delta-badge ${deltaCostCls}">${deltaCostText}</span>
+            </td>
+            <td style="text-align: center;">
+              <span class="delta-badge ${deltaFestCls}">${deltaFestText}</span>
+            </td>
+            <td>
+              <div style="display: flex; align-items: center; gap: 0.5rem;">
+                <div class="member-progress-bar-track">
+                  <div class="member-progress-bar-fill" style="width: ${costPct.toFixed(1)}%; background-color: ${pal.color};"></div>
+                </div>
+                <span class="col-mono" style="font-size: 0.775rem;">${costPct.toFixed(1)}%</span>
+              </div>
+            </td>
+          </tr>
+        `;
+      }).join('');
+
+      // Actualizar pie de tabla resumen
+      const elTotWeeks = document.getElementById('teamTotalWeeks');
+      const elTotFestPuros = document.getElementById('teamTotalFestivosPuros');
+      const elTotFestEq = document.getElementById('teamTotalFestivosEquiv');
+      const elTotCost = document.getElementById('teamTotalCost');
+
+      const elAvgWeeks = document.getElementById('teamAvgWeeks');
+      const elAvgFestPuros = document.getElementById('teamAvgFestivosPuros');
+      const elAvgFestEq = document.getElementById('teamAvgFestivosEquiv');
+      const elAvgCost = document.getElementById('teamAvgCost');
+
+      if (elTotWeeks) elTotWeeks.textContent = tot.weeks;
+      if (elTotFestPuros) elTotFestPuros.textContent = tot.festivosPuros;
+      if (elTotFestEq) elTotFestEq.textContent = tot.festivosEquiv.toFixed(1);
+      if (elTotCost) elTotCost.textContent = currencyFormatter.format(tot.cost);
+
+      if (elAvgWeeks) elAvgWeeks.textContent = avg.weeks.toFixed(2);
+      if (elAvgFestPuros) elAvgFestPuros.textContent = avg.festivosPuros.toFixed(2);
+      if (elAvgFestEq) elAvgFestEq.textContent = avg.festivosEquiv.toFixed(2);
+      if (elAvgCost) elAvgCost.textContent = currencyFormatter.format(avg.cost);
+    }
+
+    // 5. Cronograma detallado de semanas con reasignación interactiva
+    const tbodyTimeline = document.getElementById('assignmentTimelineBody');
+    if (tbodyTimeline) {
+      const rates = state.calcResult.precios;
+      const weeksData = AssignmentEngine.prepareWeeksData(
+        state.calendar.weeksList,
+        rates,
+        {
+          vacationWeight: state.vacationWeight,
+          holidaysEquivalenceEnabled: state.holidaysEquivalenceEnabled
+        }
+      );
+
+      tbodyTimeline.innerHTML = weeksData.map(w => {
+        const assignedId = state.assignments ? state.assignments[w.weekKey] : null;
+        const currentMember = state.teamMembers.find(m => m.id === assignedId);
+        const pal = currentMember
+          ? AssignmentEngine.MEMBER_PALETTE[currentMember.colorIndex % AssignmentEngine.MEMBER_PALETTE.length]
+          : null;
+
+        const dStart = new Date(w.startDate + 'T00:00:00Z');
+        const dEnd = new Date(w.endDate + 'T00:00:00Z');
+        const optFormat = { day: '2-digit', month: '2-digit' };
+        const rangeStr = `${dStart.toLocaleDateString('es-ES', optFormat)} - ${dEnd.toLocaleDateString('es-ES', optFormat)}`;
+
+        const optionsHtml = state.teamMembers.map(m => {
+          return `<option value="${m.id}" ${m.id === assignedId ? 'selected' : ''}>${m.name}</option>`;
+        }).join('');
+
+        return `
+          <tr data-week-key="${w.weekKey}">
+            <td class="col-mono">W${String(w.weekNum).padStart(2, '0')}</td>
+            <td>${rangeStr}</td>
+            <td><span class="badge ${w.counts.festivo > 0 ? 'badge-purple' : (w.counts.cierre > 0 ? 'badge-amber' : 'badge-blue')}">${w.archetype}</span></td>
+            <td>
+              <span class="badge badge-normal">${w.counts.normal}N</span>
+              ${w.counts.cierre > 0 ? `<span class="badge badge-cierre">${w.counts.cierre}C</span>` : ''}
+              ${w.counts.festivo > 0 ? `<span class="badge badge-festivo">${w.counts.festivo}F</span>` : ''}
+            </td>
+            <td class="col-mono" style="font-weight: 700;">${w.festivosEquivalentes.toFixed(1)}</td>
+            <td class="col-mono" style="font-weight: 800;">${currencyFormatter.format(w.cost)}</td>
+            <td>
+              <select 
+                class="assignee-select-cell timeline-assignee-select" 
+                data-week-key="${w.weekKey}"
+                style="${pal ? 'border-left: 3px solid ' + pal.color + ';' : ''}"
+                title="Cambiar responsable asignado">
+                ${optionsHtml}
+              </select>
+            </td>
+          </tr>
+        `;
+      }).join('');
+    }
   }
 
   /**
@@ -809,6 +1241,247 @@
     if (btnPrint) {
       btnPrint.addEventListener('click', () => window.print());
     }
+
+    // 17. MÓDULO DE ASIGNACIÓN: Selección de estrategia
+    const selectAssignmentStrategy = document.getElementById('selectAssignmentStrategy');
+    if (selectAssignmentStrategy) {
+      selectAssignmentStrategy.addEventListener('change', (e) => {
+        state.assignmentStrategy = e.target.value;
+        recalculate(true);
+      });
+    }
+
+    const btnRunAutoAssign = document.getElementById('btnRunAutoAssign');
+    if (btnRunAutoAssign) {
+      btnRunAutoAssign.addEventListener('click', () => {
+        recalculate(true);
+      });
+    }
+
+    // 18. MÓDULO DE ASIGNACIÓN: Equivalencia de vacaciones como festivo
+    const toggleHolidayEquivalence = document.getElementById('toggleHolidayEquivalence');
+    const inputVacationWeight = document.getElementById('inputVacationWeight');
+    const labelVacationWeightVal = document.getElementById('labelVacationWeightVal');
+
+    if (toggleHolidayEquivalence) {
+      toggleHolidayEquivalence.addEventListener('change', (e) => {
+        state.holidaysEquivalenceEnabled = e.target.checked;
+        if (inputVacationWeight) inputVacationWeight.disabled = !e.target.checked;
+        recalculate(true);
+      });
+    }
+
+    if (inputVacationWeight) {
+      inputVacationWeight.addEventListener('input', (e) => {
+        const val = parseFloat(e.target.value);
+        if (!isNaN(val) && val >= 0) {
+          state.vacationWeight = val;
+          if (labelVacationWeightVal) labelVacationWeightVal.textContent = val.toFixed(1);
+          recalculate(true);
+        }
+      });
+    }
+
+    // 19. MÓDULO DE ASIGNACIÓN: Gestión dinámica del equipo (añadir, editar, borrar)
+    const btnAddMember = document.getElementById('btnAddMember');
+    if (btnAddMember) {
+      btnAddMember.addEventListener('click', () => {
+        if (state.teamMembers.length >= 6) return;
+        const count = state.teamMembers.length;
+        const nextColorIdx = count % AssignmentEngine.MEMBER_PALETTE.length;
+        const newMember = {
+          id: AssignmentEngine.generateMemberId(),
+          name: `Persona ${count + 1}`,
+          colorIndex: nextColorIdx
+        };
+        state.teamMembers.push(newMember);
+        recalculate(true);
+      });
+    }
+
+    const teamContainer = document.getElementById('teamMembersList');
+    if (teamContainer) {
+      // Editar nombre en tiempo real
+      teamContainer.addEventListener('input', (e) => {
+        const input = e.target.closest('.member-input-name');
+        if (input) {
+          const mId = input.getAttribute('data-member-id');
+          const member = state.teamMembers.find(m => m.id === mId);
+          if (member) {
+            member.name = input.value.trim() || 'Sin nombre';
+            refreshMemberNamesOnly();
+          }
+        }
+      });
+
+      // Refresco completo al salir del input
+      teamContainer.addEventListener('change', (e) => {
+        const input = e.target.closest('.member-input-name');
+        if (input) {
+          refreshAfterManualAssignment();
+        }
+      });
+
+      // Eliminar persona
+      teamContainer.addEventListener('click', (e) => {
+        const btnDelete = e.target.closest('.btn-delete-member');
+        if (btnDelete) {
+          const mId = btnDelete.getAttribute('data-member-id');
+          if (state.teamMembers.length <= 1) {
+            alert('El equipo debe contar con al menos 1 miembro.');
+            return;
+          }
+          const memberToDelete = state.teamMembers.find(m => m.id === mId);
+          const name = memberToDelete ? memberToDelete.name : 'este miembro';
+          if (confirm(`¿Eliminar a ${name} del equipo de guardia? Sus semanas se reasignarán automáticamente.`)) {
+            state.teamMembers = state.teamMembers.filter(m => m.id !== mId);
+            recalculate(true);
+          }
+        }
+      });
+    }
+
+    // 20. MÓDULO DE ASIGNACIÓN: Reasignación interactiva desde el Inspector
+    const inspectorSelect = document.getElementById('inspectorAssigneeSelect');
+    if (inspectorSelect) {
+      inspectorSelect.addEventListener('change', (e) => {
+        const newMemberId = e.target.value;
+        if (state.selectedWeekKey && state.assignments) {
+          state.assignments[state.selectedWeekKey] = newMemberId;
+          refreshAfterManualAssignment();
+        }
+      });
+    }
+
+    // 21. MÓDULO DE ASIGNACIÓN: Reasignación interactiva desde la Tabla de Semanas
+    const weeksTableBody = document.getElementById('weeksTableBody');
+    if (weeksTableBody) {
+      weeksTableBody.addEventListener('change', (e) => {
+        const select = e.target.closest('.week-table-assignee-select');
+        if (select) {
+          const weekKey = select.getAttribute('data-week-key');
+          const newMemberId = select.value;
+          if (weekKey && state.assignments) {
+            state.assignments[weekKey] = newMemberId;
+            refreshAfterManualAssignment();
+          }
+        }
+      });
+    }
+
+    // 22. MÓDULO DE ASIGNACIÓN: Reasignación interactiva desde el Cronograma
+    const timelineBody = document.getElementById('assignmentTimelineBody');
+    if (timelineBody) {
+      timelineBody.addEventListener('change', (e) => {
+        const select = e.target.closest('.timeline-assignee-select');
+        if (select) {
+          const weekKey = select.getAttribute('data-week-key');
+          const newMemberId = select.value;
+          if (weekKey && state.assignments) {
+            state.assignments[weekKey] = newMemberId;
+            refreshAfterManualAssignment();
+          }
+        }
+      });
+    }
+  }
+
+  /**
+   * Refresca sólo los nombres de miembros en selects y etiquetas sin tocar los inputs de texto
+   */
+  function refreshMemberNamesOnly() {
+    renderCalendarGrid();
+    renderWeekInspector();
+    renderWeeksTable();
+    // Actualizar tabla resumen
+    if (typeof AssignmentEngine !== 'undefined') {
+      const weeksData = AssignmentEngine.prepareWeeksData(
+        state.calendar.weeksList,
+        state.calcResult.precios,
+        {
+          vacationWeight: state.vacationWeight,
+          holidaysEquivalenceEnabled: state.holidaysEquivalenceEnabled
+        }
+      );
+      state.teamMetrics = AssignmentEngine.calculateTeamMetrics(
+        weeksData,
+        state.assignments,
+        state.teamMembers
+      );
+      const tbodySummary = document.getElementById('teamSummaryTableBody');
+      if (tbodySummary) {
+        tbodySummary.innerHTML = state.teamMetrics.memberStats.map(m => {
+          const pal = m.palette;
+          const initials = m.name ? m.name.split(' ').map(n => n[0]).join('').substring(0, 2).toUpperCase() : 'P';
+          const costPct = state.teamMetrics.totals.cost > 0 ? (m.totalCost / state.teamMetrics.totals.cost) * 100 : 0;
+          let deltaCostCls = 'delta-balanced';
+          let deltaCostSign = '±';
+          if (Math.abs(m.diffCostVsMean) >= 0.05) {
+            deltaCostCls = m.diffCostVsMean > 0 ? 'delta-positive' : 'delta-negative';
+            deltaCostSign = m.diffCostVsMean > 0 ? '+' : '';
+          }
+          const deltaCostText = `${deltaCostSign}${currencyFormatter.format(m.diffCostVsMean)} (${m.diffCostPctVsMean >= 0 ? '+' : ''}${m.diffCostPctVsMean.toFixed(1)}%)`;
+          let deltaFestCls = 'delta-balanced';
+          let deltaFestSign = '±';
+          if (Math.abs(m.diffHolidaysVsMean) >= 0.05) {
+            deltaFestCls = m.diffHolidaysVsMean > 0 ? 'delta-fest-pos' : 'delta-fest-neg';
+            deltaFestSign = m.diffHolidaysVsMean > 0 ? '+' : '';
+          }
+          const deltaFestText = `${deltaFestSign}${m.diffHolidaysVsMean.toFixed(1)}`;
+          return `
+            <tr>
+              <td>
+                <div style="display: flex; align-items: center; gap: 0.5rem;">
+                  <span class="member-avatar" style="background-color: ${pal.color};">${initials}</span>
+                  <span style="font-weight: 700; color: var(--text-primary);">${m.name}</span>
+                </div>
+              </td>
+              <td style="text-align: center;" class="col-mono">${m.weeksCount} sem.</td>
+              <td style="text-align: center;" class="col-mono">${m.festivosPuros}</td>
+              <td style="text-align: center;" class="col-mono">${m.festivosEquiv.toFixed(1)}</td>
+              <td style="text-align: right; font-weight: 800;" class="col-mono">${currencyFormatter.format(m.totalCost)}</td>
+              <td style="text-align: center;"><span class="delta-badge ${deltaCostCls}">${deltaCostText}</span></td>
+              <td style="text-align: center;"><span class="delta-badge ${deltaFestCls}">${deltaFestText}</span></td>
+              <td>
+                <div style="display: flex; align-items: center; gap: 0.5rem;">
+                  <div class="member-progress-bar-track">
+                    <div class="member-progress-bar-fill" style="width: ${costPct.toFixed(1)}%; background-color: ${pal.color};"></div>
+                  </div>
+                  <span class="col-mono" style="font-size: 0.775rem;">${costPct.toFixed(1)}%</span>
+                </div>
+              </td>
+            </tr>
+          `;
+        }).join('');
+      }
+    }
+  }
+
+  /**
+   * Refresca las métricas tras una reasignación manual
+   */
+  function refreshAfterManualAssignment() {
+    if (typeof AssignmentEngine === 'undefined' || !state.calendar) return;
+
+    const weeksData = AssignmentEngine.prepareWeeksData(
+      state.calendar.weeksList,
+      state.calcResult.precios,
+      {
+        vacationWeight: state.vacationWeight,
+        holidaysEquivalenceEnabled: state.holidaysEquivalenceEnabled
+      }
+    );
+
+    state.teamMetrics = AssignmentEngine.calculateTeamMetrics(
+      weeksData,
+      state.assignments,
+      state.teamMembers
+    );
+
+    renderCalendarGrid();
+    renderWeekInspector();
+    renderWeeksTable();
+    renderTeamAssignmentTab();
   }
 
   /**
@@ -848,7 +1521,7 @@
         const json = JSON.parse(event.target.result);
         state.calendarRaw = json;
         parseAndSetupCalendar();
-        recalculate();
+        recalculate(true);
         alert(`¡Calendario cargado con éxito para el año ${state.calendar.year}!`);
       } catch (err) {
         alert('Error al leer el archivo JSON: formato inválido. ' + err.message);
@@ -862,13 +1535,21 @@
    * Restablece todos los parámetros a los valores por defecto
    */
   function resetDefaults() {
-    if (confirm('¿Restablecer el presupuesto a 600 €/semana y las ponderaciones por defecto?')) {
+    if (confirm('¿Restablecer el presupuesto, ponderaciones y equipo de guardia por defecto?')) {
       state.presupuestoSemanal = 600.0;
       state.semanasAnio = 52;
       state.presupuestoAnual = 31200.0;
       state.strictCeiling = true;
       state.weights = { normal: 1.0, cierre: 1.3, festivo: 1.8 };
       state.selectedWeekKey = '2026-W14';
+
+      if (typeof AssignmentEngine !== 'undefined') {
+        state.teamMembers = JSON.parse(JSON.stringify(AssignmentEngine.DEFAULT_MEMBERS));
+      }
+      state.assignmentStrategy = 'economic';
+      state.holidaysEquivalenceEnabled = true;
+      state.vacationWeight = 0.5;
+      state.assignments = {};
 
       if (typeof DEFAULT_CALENDAR_2026 !== 'undefined') {
         state.calendarRaw = DEFAULT_CALENDAR_2026;
@@ -883,41 +1564,66 @@
         b.classList.toggle('active', b.getAttribute('data-preset') === 'recomendado');
       });
 
-      recalculate();
+      recalculate(true);
     }
   }
 
   /**
-   * Exporta el desglose completo de las 53 semanas a CSV para Excel / Nóminas
+   * Exporta el desglose completo de las 53 semanas y reparto del equipo a CSV para Excel / Nóminas
    */
   function exportCsv() {
     const rates = state.calcResult.precios;
     const weeks = state.calendar.weeksList;
 
     let csv = '\uFEFF'; // BOM para compatibilidad UTF-8 en Excel
-    csv += 'CompensaGuardias - Presupuesto Anual de Guardias\n';
+    csv += 'CompensaGuardias - Presupuesto Anual y Reparto del Equipo de Guardias\n';
     csv += `Año:;${state.calendar.year};Presupuesto Anual Límite:;${state.presupuestoAnual.toFixed(2)} €\n`;
+    csv += `Criterio de Reparto:;${state.assignmentStrategy};Vacaciones como Festivo:;${state.holidaysEquivalenceEnabled ? 'Sí (peso ' + state.vacationWeight + ')' : 'No'}\n`;
     csv += `Tarifa Normal (€):;${rates.normal.toFixed(2)};Tarifa Cierre (€):;${rates.cierre.toFixed(2)};Tarifa Festivo (€):;${rates.festivo.toFixed(2)}\n\n`;
-    csv += 'Semana;Fecha Inicio;Fecha Fin;Arquetipo;Dias Normales;Dias Cierre;Dias Festivo;Total Semana (€);Desviacion vs Media (€)\n';
+
+    // 1. Desglose semanal
+    csv += 'Semana;Fecha Inicio;Fecha Fin;Arquetipo;Dias Normales;Dias Cierre;Dias Festivo;Festivos Equiv;Total Semana (€);Responsable Asignado\n';
 
     weeks.forEach(w => {
       const costObj = Calculator.calculateWeekCost(w.daysInBudgetYear, rates);
-      const diff = costObj.total - state.presupuestoSemanal;
-      csv += `${w.weekKey};${w.startDate};${w.endDate};"${w.archetype}";${w.counts.normal};${w.counts.cierre};${w.counts.festivo};${costObj.total.toFixed(2)};${diff.toFixed(2)}\n`;
+      const assignedId = state.assignments ? state.assignments[w.weekKey] : '';
+      const member = state.teamMembers.find(m => m.id === assignedId);
+      const memberName = member ? member.name : 'Sin asignar';
+      const festEquiv = AssignmentEngine.calculateEquivalentHolidays(
+        w.counts.festivo,
+        w.counts.cierre,
+        state.vacationWeight,
+        state.holidaysEquivalenceEnabled
+      );
+
+      csv += `${w.weekKey};${w.startDate};${w.endDate};"${w.archetype}";${w.counts.normal};${w.counts.cierre};${w.counts.festivo};${festEquiv.toFixed(1)};${costObj.total.toFixed(2)};"${memberName}"\n`;
     });
+
+    // 2. Resumen por persona
+    if (state.teamMetrics && state.teamMetrics.memberStats) {
+      csv += '\n\nResumen Anual por Miembro del Equipo:\n';
+      csv += 'Miembro;Semanas Asignadas;Festivos Puros;Festivos Equivalentes;Total Acumulado (€);Desviacion vs Media (€);Desviacion Festivos vs Media\n';
+
+      state.teamMetrics.memberStats.forEach(m => {
+        csv += `"${m.name}";${m.weeksCount};${m.festivosPuros};${m.festivosEquiv.toFixed(1)};${m.totalCost.toFixed(2)};${m.diffCostVsMean.toFixed(2)};${m.diffHolidaysVsMean.toFixed(1)}\n`;
+      });
+
+      const avg = state.teamMetrics.averages;
+      csv += `"MEDIA EQUIPO";${avg.weeks.toFixed(2)};${avg.festivosPuros.toFixed(2)};${avg.festivosEquiv.toFixed(2)};${avg.cost.toFixed(2)};0.00;0.0\n`;
+    }
 
     const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
     const url = URL.createObjectURL(blob);
     const link = document.createElement('a');
     link.setAttribute('href', url);
-    link.setAttribute('download', `guardias-${state.calendar.year}-presupuesto.csv`);
+    link.setAttribute('download', `guardias-reparto-${state.calendar.year}.csv`);
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
   }
 
   /**
-   * Exporta la configuración y cálculo a JSON
+   * Exporta la configuración, cálculo y reparto de equipo a JSON
    */
   function exportJson() {
     const dataToExport = {
@@ -932,15 +1638,26 @@
       },
       weights: state.weights,
       results: state.calcResult,
+      teamAssignment: {
+        strategy: state.assignmentStrategy,
+        holidaysEquivalenceEnabled: state.holidaysEquivalenceEnabled,
+        vacationWeight: state.vacationWeight,
+        teamMembers: state.teamMembers,
+        assignments: state.assignments,
+        teamMetrics: state.teamMetrics
+      },
       weeksSummary: state.calendar.weeksList.map(w => {
         const cost = Calculator.calculateWeekCost(w.daysInBudgetYear, state.calcResult.precios);
+        const assignedId = state.assignments ? state.assignments[w.weekKey] : null;
+        const member = state.teamMembers.find(m => m.id === assignedId);
         return {
           weekKey: w.weekKey,
           startDate: w.startDate,
           endDate: w.endDate,
           archetype: w.archetype,
           counts: w.counts,
-          totalCost: cost.total
+          totalCost: cost.total,
+          assignedTo: member ? { id: member.id, name: member.name } : null
         };
       })
     };
@@ -949,7 +1666,7 @@
     const url = URL.createObjectURL(blob);
     const link = document.createElement('a');
     link.setAttribute('href', url);
-    link.setAttribute('download', `compensaguardias-simulacion-${state.calendar.year}.json`);
+    link.setAttribute('download', `compensaguardias-reparto-${state.calendar.year}.json`);
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);

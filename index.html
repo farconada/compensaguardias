@@ -321,6 +321,9 @@
         <button type="button" class="tab-btn" data-tab="tab-weeks">
           📋 Listado y Comparador de Semanas (53)
         </button>
+        <button type="button" class="tab-btn" data-tab="tab-assignment">
+          👥 Reparto y Asignación de Guardias
+        </button>
         <button type="button" class="tab-btn" data-tab="tab-audit">
           📊 Conciliación Presupuestaria y Auditoría
         </button>
@@ -382,6 +385,23 @@
               <div class="inspector-amount-diff" id="inspectorAmountDiff">+173,08 € (+28.8%) vs media semanal</div>
             </div>
 
+            <!-- Asignación de Responsable de Guardia para esta Semana -->
+            <div class="inspector-assignee-box">
+              <div class="inspector-assignee-header">
+                <span class="inspector-assignee-title">👤 Responsable Asignado</span>
+                <span id="inspectorAssigneeBadge" class="member-pill">
+                  <span class="member-dot" id="inspectorAssigneeDot"></span>
+                  <span id="inspectorAssigneeName">Carlos Santana</span>
+                </span>
+              </div>
+              <div class="inspector-assignee-controls">
+                <label for="inspectorAssigneeSelect" style="font-size: 0.775rem; color: var(--text-muted); font-weight: 600;">Reasignar a:</label>
+                <select id="inspectorAssigneeSelect" class="inspector-assignee-select" title="Cambiar responsable de esta semana">
+                  <!-- Opciones generadas dinámicamente -->
+                </select>
+              </div>
+            </div>
+
             <div style="display: flex; justify-content: space-between; align-items: center;">
               <span style="font-size: 0.85rem; font-weight: 700;">Desglose Día por Día</span>
               <span class="badge badge-subtle" id="inspectorArchetypePill">Semana Santa / Intensiva</span>
@@ -436,6 +456,7 @@
                 <th>Desglose Días</th>
                 <th>Total Semana (€)</th>
                 <th>Desviación vs Media (€)</th>
+                <th>Responsable Asignado</th>
                 <th>Acción</th>
               </tr>
             </thead>
@@ -447,7 +468,180 @@
 
       </div>
 
-      <!-- PESTAÑA 3: CONCILIACIÓN PRESUPUESTARIA Y AUDITORÍA -->
+      <!-- PESTAÑA 3: REPARTO Y ASIGNACIÓN DE GUARDIAS -->
+      <div class="tab-content" id="tab-assignment">
+        
+        <!-- Tarjeta de Control y Configuración del Reparto -->
+        <div class="assignment-header-card">
+          <div class="card-header" style="margin-bottom: 0;">
+            <div>
+              <h2 class="card-title">👥 Parámetros de Reparto y Algoritmo</h2>
+              <p class="card-subtitle">Configura los criterios de optimización para distribuir las semanas entre los miembros del equipo</p>
+            </div>
+          </div>
+
+          <div class="assignment-config-grid">
+            
+            <!-- Criterio / Estrategia de Asignación -->
+            <div class="strategy-select-group">
+              <label for="selectAssignmentStrategy" class="form-label">
+                <span>Estrategia de Asignación</span>
+                <span class="label-hint">Criterio matemático de optimización</span>
+              </label>
+              <select id="selectAssignmentStrategy" class="strategy-select">
+                <option value="economic" selected>💰 Equidad Económica (Económico Balanceado)</option>
+                <option value="holidays">🏖️ Equidad en Festivos (Festivos Balanceados)</option>
+                <option value="mixed">⚖️ Equilibrio Mixto (Ponderado: Ingresos + Festivos)</option>
+                <option value="round_robin">🔄 Turno Rotativo Estricto (Round-Robin)</option>
+              </select>
+            </div>
+
+            <!-- Equivalencia de Vacaciones como Festivo -->
+            <div class="vacation-equiv-card">
+              <div class="vacation-equiv-header">
+                <label for="toggleHolidayEquivalence" style="cursor: pointer; display: flex; align-items: center; gap: 0.5rem; font-weight: 700; font-size: 0.85rem;">
+                  <input type="checkbox" id="toggleHolidayEquivalence" checked>
+                  <span>Equiparar vacaciones como festivo</span>
+                </label>
+                <div class="vacation-equiv-row">
+                  <span style="font-size: 0.8rem; font-weight: 600;">Peso:</span>
+                  <input 
+                    type="number" 
+                    id="inputVacationWeight" 
+                    class="vacation-weight-input" 
+                    value="0.5" 
+                    step="0.1" 
+                    min="0" 
+                    max="2.0"
+                    title="Equivalencia: peso por día de cierre/vacación">
+                </div>
+              </div>
+              <div class="vacation-equiv-formula">
+                Fórmula: <strong>Festivos equiv. = Festivos + (Cierres × <span id="labelVacationWeightVal">0.5</span>)</strong> (2 días cierre = 1 festivo)
+              </div>
+            </div>
+
+            <!-- Botón de Reparto Automático -->
+            <div>
+              <button type="button" id="btnRunAutoAssign" class="btn-run-assign" title="Calcular y aplicar reparto con el algoritmo seleccionado">
+                ⚡ Repartir Automáticamente
+              </button>
+            </div>
+
+          </div>
+        </div>
+
+        <!-- Gestión Dinámica del Equipo (1 a 6 Personas) -->
+        <div class="team-grid-card">
+          <div class="team-header-row">
+            <div>
+              <h3 class="card-title" style="font-size: 1.05rem;">
+                🧑‍🤝‍🧑 Equipo de Guardia (<span id="teamCountBadge">4 / 6 miembros</span>)
+              </h3>
+              <p class="card-subtitle">Personaliza los nombres y añade o elimina personas (mínimo 1, máximo 6)</p>
+            </div>
+            <button type="button" id="btnAddMember" class="btn btn-sm btn-add-member" title="Añadir una nueva persona al equipo">
+              ➕ Añadir Persona
+            </button>
+          </div>
+
+          <div id="teamMembersList" class="team-members-container">
+            <!-- Miembros generados dinámicamente -->
+          </div>
+        </div>
+
+        <!-- Tarjetas KPI de Dispersión y Balance Global -->
+        <div class="kpis-grid" id="assignmentKpisGrid">
+          <!-- KPIs generados dinámicamente -->
+        </div>
+
+        <!-- Tabla Resumen Anual por Persona -->
+        <div class="team-table-card">
+          <div class="card-header">
+            <div>
+              <h3 class="card-title" style="font-size: 1.05rem;">📊 Resumen Anual por Persona</h3>
+              <p class="card-subtitle">Cómputo anual de semanas, festivos acumulados, compensación total e indicadores de dispersión respecto a la media</p>
+            </div>
+          </div>
+
+          <div class="data-table-container" style="border: none; box-shadow: none;">
+            <table class="data-table">
+              <thead>
+                <tr>
+                  <th>Miembro</th>
+                  <th style="text-align: center;">Semanas Asignadas</th>
+                  <th style="text-align: center;">Festivos Puros</th>
+                  <th style="text-align: center;">Festivos Equivalentes</th>
+                  <th style="text-align: right;">Total Acumulado (€)</th>
+                  <th style="text-align: center;">Δ € vs Media</th>
+                  <th style="text-align: center;">Δ Festivos vs Media</th>
+                  <th style="min-width: 120px;">% del Presupuesto</th>
+                </tr>
+              </thead>
+              <tbody id="teamSummaryTableBody">
+                <!-- Filas de miembros generadas dinámicamente -->
+              </tbody>
+              <tfoot>
+                <tr style="background-color: var(--bg-subtle); font-weight: 800; border-top: 2px solid var(--border-color);">
+                  <td>TOTAL EQUIPO</td>
+                  <td id="teamTotalWeeks" style="text-align: center;" class="col-mono">53</td>
+                  <td id="teamTotalFestivosPuros" style="text-align: center;" class="col-mono">14</td>
+                  <td id="teamTotalFestivosEquiv" style="text-align: center;" class="col-mono">26.0</td>
+                  <td id="teamTotalCost" style="text-align: right;" class="col-mono">31.200,00 €</td>
+                  <td style="text-align: center;" class="col-mono">—</td>
+                  <td style="text-align: center;" class="col-mono">—</td>
+                  <td class="col-mono">100.0%</td>
+                </tr>
+                <tr style="background-color: var(--bg-surface); font-weight: 700; color: var(--text-secondary); border-top: 1px dashed var(--border-color);">
+                  <td>MEDIA POR MIEMBRO</td>
+                  <td id="teamAvgWeeks" style="text-align: center;" class="col-mono">13.25</td>
+                  <td id="teamAvgFestivosPuros" style="text-align: center;" class="col-mono">3.5</td>
+                  <td id="teamAvgFestivosEquiv" style="text-align: center;" class="col-mono">6.5</td>
+                  <td id="teamAvgCost" style="text-align: right;" class="col-mono">7.800,00 €</td>
+                  <td style="text-align: center;" class="col-mono">±0,00 €</td>
+                  <td style="text-align: center;" class="col-mono">±0.0</td>
+                  <td class="col-mono">—</td>
+                </tr>
+              </tfoot>
+            </table>
+          </div>
+        </div>
+
+        <!-- Cronograma y Vista de Asignación Semanal (Reasignación Interactiva) -->
+        <div class="timeline-card">
+          <div class="card-header">
+            <div>
+              <h3 class="card-title" style="font-size: 1.05rem;">📅 Cronograma Detallado de Guardias y Reasignación Manual</h3>
+              <p class="card-subtitle">Revisa semana a semana el calendario de guardias o cambia interactivamente el responsable asignado con recálculo en tiempo real</p>
+            </div>
+            <div style="font-size: 0.8rem; color: var(--text-muted);">
+              💡 Cualquier cambio manual recalcula instantáneamente todas las métricas del equipo
+            </div>
+          </div>
+
+          <div class="data-table-container">
+            <table class="data-table">
+              <thead>
+                <tr>
+                  <th>Semana</th>
+                  <th>Fechas</th>
+                  <th>Arquetipo</th>
+                  <th>Días</th>
+                  <th>Festivos Equiv.</th>
+                  <th>Coste Semana (€)</th>
+                  <th>Responsable Asignado</th>
+                </tr>
+              </thead>
+              <tbody id="assignmentTimelineBody">
+                <!-- Semanas generadas dinámicamente -->
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+      </div>
+
+      <!-- PESTAÑA 4: CONCILIACIÓN PRESUPUESTARIA Y AUDITORÍA -->
       <div class="tab-content" id="tab-audit">
         
         <div class="audit-grid">
@@ -534,6 +728,7 @@
   <script src="js/default-data.js"></script>
   <script src="js/calculator.js"></script>
   <script src="js/calendar.js"></script>
+  <script src="js/assignment.js"></script>
   <script src="js/app.js"></script>
 </body>
 </html>
