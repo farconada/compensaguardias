@@ -1,0 +1,87 @@
+{
+  "anio": 2026,
+  "festivos_no_fin_de_semana": [
+    {"fecha": "2026-01-01", "dia_semana": "jueves", "nombre": "Año Nuevo", "tipo": "Nacional/Autonómico"},
+    {"fecha": "2026-01-06", "dia_semana": "martes", "nombre": "Epifanía del Señor", "tipo": "Nacional/Autonómico"},
+    {"fecha": "2026-02-27", "dia_semana": "viernes", "nombre": "Día de la Comunidad Universitaria", "tipo": "Universidad"},
+    {"fecha": "2026-04-02", "dia_semana": "jueves", "nombre": "Jueves Santo", "tipo": "Nacional/Autonómico"},
+    {"fecha": "2026-04-03", "dia_semana": "viernes", "nombre": "Viernes Santo", "tipo": "Nacional/Autonómico"},
+    {"fecha": "2026-04-06", "dia_semana": "lunes", "nombre": "Lunes de Pascua", "tipo": "Nacional/Autonómico"},
+    {"fecha": "2026-05-01", "dia_semana": "viernes", "nombre": "Fiesta del Trabajo", "tipo": "Nacional/Autonómico"},
+    {"fecha": "2026-05-11", "dia_semana": "lunes", "nombre": "Fiesta de la Universidad de La Rioja", "tipo": "Universidad"},
+    {"fecha": "2026-06-09", "dia_semana": "martes", "nombre": "Día de La Rioja", "tipo": "Nacional/Autonómico"},
+    {"fecha": "2026-06-11", "dia_semana": "jueves", "nombre": "San Bernabé", "tipo": "Local"},
+    {"fecha": "2026-09-21", "dia_semana": "lunes", "nombre": "San Mateo", "tipo": "Local"},
+    {"fecha": "2026-10-12", "dia_semana": "lunes", "nombre": "Fiesta Nacional de España", "tipo": "Nacional/Autonómico"},
+    {"fecha": "2026-12-08", "dia_semana": "martes", "nombre": "Inmaculada Concepción", "tipo": "Nacional/Autonómico"},
+    {"fecha": "2026-12-25", "dia_semana": "viernes", "nombre": "Natividad del Señor", "tipo": "Nacional/Autonómico"}
+  ],
+  "cierre_energetico_y_vacaciones_obligatorias": [
+    {
+      "periodo": "Año Nuevo",
+      "tipo_detalle": "Cierre energético",
+      "total_dias": 2,
+      "dias": [
+        {"fecha": "2026-01-02", "dia_semana": "viernes"},
+        {"fecha": "2026-01-05", "dia_semana": "lunes"}
+      ]
+    },
+    {
+      "periodo": "Semana Santa",
+      "tipo_detalle": "Cierre energético",
+      "total_dias": 3,
+      "dias": [
+        {"fecha": "2026-03-30", "dia_semana": "lunes"},
+        {"fecha": "2026-03-31", "dia_semana": "martes"},
+        {"fecha": "2026-04-01", "dia_semana": "miércoles"}
+      ]
+    },
+    {
+      "periodo": "San Bernabé",
+      "tipo_detalle": "Cierre energético",
+      "total_dias": 1,
+      "dias": [
+        {"fecha": "2026-06-10", "dia_semana": "miércoles"}
+      ]
+    },
+    {
+      "periodo": "Verano",
+      "tipo_detalle": "Vacaciones obligatorias",
+      "total_dias": 10,
+      "dias": [
+        {"fecha": "2026-08-03", "dia_semana": "lunes"},
+        {"fecha": "2026-08-04", "dia_semana": "martes"},
+        {"fecha": "2026-08-05", "dia_semana": "miércoles"},
+        {"fecha": "2026-08-06", "dia_semana": "jueves"},
+        {"fecha": "2026-08-07", "dia_semana": "viernes"},
+        {"fecha": "2026-08-10", "dia_semana": "lunes"},
+        {"fecha": "2026-08-11", "dia_semana": "martes"},
+        {"fecha": "2026-08-12", "dia_semana": "miércoles"},
+        {"fecha": "2026-08-13", "dia_semana": "jueves"},
+        {"fecha": "2026-08-14", "dia_semana": "viernes"}
+      ]
+    },
+    {
+      "periodo": "San Mateo",
+      "tipo_detalle": "Cierre energético",
+      "total_dias": 2,
+      "dias": [
+        {"fecha": "2026-09-22", "dia_semana": "martes"},
+        {"fecha": "2026-09-23", "dia_semana": "miércoles"}
+      ]
+    },
+    {
+      "periodo": "Navidad",
+      "tipo_detalle": "Cierre energético",
+      "total_dias": 6,
+      "dias": [
+        {"fecha": "2026-12-23", "dia_semana": "miércoles"},
+        {"fecha": "2026-12-24", "dia_semana": "jueves"},
+        {"fecha": "2026-12-28", "dia_semana": "lunes"},
+        {"fecha": "2026-12-29", "dia_semana": "martes"},
+        {"fecha": "2026-12-30", "dia_semana": "miércoles"},
+        {"fecha": "2026-12-31", "dia_semana": "jueves"}
+      ]
+    }
+  ]
+}

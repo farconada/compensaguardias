@@ -1,0 +1,539 @@
+<!DOCTYPE html>
+<html lang="es" data-theme="light">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>CompensaGuardias - Calculadora de Guardias Localizadas 2026</title>
+  <meta name="description" content="Aplicación web para presupuestar y calcular las compensaciones de guardias localizadas con calendario laboral y ponderación de días.">
+  <link rel="stylesheet" href="css/styles.css">
+</head>
+<body>
+
+  <div class="app-container">
+
+    <!-- Encabezado Principal -->
+    <header class="app-header">
+      <div class="brand-wrapper">
+        <div class="brand-icon">⏱️</div>
+        <div>
+          <h1 class="brand-title">CompensaGuardias <span class="badge badge-normal" id="chipYear">2026</span></h1>
+          <p class="brand-subtitle">Simulador de compensaciones de guardias localizadas y balance presupuestario anual</p>
+        </div>
+      </div>
+
+      <!-- Resumen de días del calendario cargado -->
+      <div class="header-badges">
+        <span class="badge badge-subtle" title="Días laborales o fines de semana estándar" id="chipNormal">327 Normales</span>
+        <span class="badge badge-cierre" title="Cierres energéticos o vacaciones obligatorias fijadas" id="chipCierre">24 Cierres</span>
+        <span class="badge badge-festivo" title="Festivos oficiales intersemanales" id="chipFestivo">14 Festivos</span>
+      </div>
+
+      <!-- Acciones de cabecera -->
+      <div class="header-actions">
+        <button class="btn btn-sm" id="btnUploadJson" title="Cargar otro archivo JSON con calendario laboral">
+          📁 Cargar Calendario JSON
+        </button>
+        <input type="file" id="jsonFileInput" accept=".json" style="display: none;">
+
+        <button class="btn btn-sm" id="btnResetDefaults" title="Restablecer valores y ponderaciones por defecto">
+          🔄 Restablecer
+        </button>
+
+        <button class="btn btn-sm" id="btnExportCsv" title="Exportar desglose semanal a archivo CSV para Excel">
+          📊 Exportar CSV
+        </button>
+
+        <button class="btn btn-sm" id="btnExportJson" title="Exportar configuración completa a JSON">
+          💾 Exportar JSON
+        </button>
+
+        <button class="btn btn-sm" id="btnPrintReport" title="Imprimir informe resumen">
+          🖨️ Imprimir
+        </button>
+
+        <button class="btn btn-sm btn-icon" id="btnThemeToggle" title="Cambiar tema de color">
+          🌙
+        </button>
+      </div>
+    </header>
+
+    <!-- Panel de Control Principal (Grid: Presupuesto + Ponderaciones) -->
+    <section class="dashboard-grid">
+
+      <!-- Card 1: Presupuesto Base y Parámetros -->
+      <div class="card">
+        <div class="card-header">
+          <div>
+            <h2 class="card-title">💰 Presupuesto y Semanas</h2>
+            <p class="card-subtitle">Configura el presupuesto base y el marco temporal del ejercicio</p>
+          </div>
+        </div>
+
+        <!-- Presupuesto semanal -->
+        <div class="form-group">
+          <label class="form-label" for="inputPresupuestoSemanal">
+            <span>Presupuesto Semanal Base</span>
+            <span class="label-hint">Valor por defecto: 600,00 €</span>
+          </label>
+          <div class="input-group">
+            <span class="input-prefix">€</span>
+            <input 
+              type="number" 
+              id="inputPresupuestoSemanal" 
+              class="form-input form-input-number" 
+              value="600.00" 
+              step="10" 
+              min="1"
+              placeholder="600.00">
+            <span class="input-suffix">/ semana</span>
+          </div>
+        </div>
+
+        <!-- Semanas del año -->
+        <div class="form-group">
+          <label class="form-label" for="inputSemanasAnio">
+            <span>Semanas Computadas en el Año</span>
+            <span class="label-hint">Base de cálculo anual</span>
+          </label>
+          <div class="input-group">
+            <input 
+              type="number" 
+              id="inputSemanasAnio" 
+              class="form-input form-input-number" 
+              value="52" 
+              step="0.1" 
+              min="1" 
+              max="60">
+            <span class="input-suffix">semanas</span>
+          </div>
+          <div class="pill-selector">
+            <button type="button" class="pill-btn pill-week-btn active" data-weeks="52">52 semanas estándar</button>
+            <button type="button" class="pill-btn pill-week-btn" data-weeks="52.142857">52,14 exactas (365/7)</button>
+            <button type="button" class="pill-btn pill-week-btn" data-weeks="53">53 semanas ISO</button>
+          </div>
+        </div>
+
+        <!-- Presupuesto Anual Límite -->
+        <div class="form-group">
+          <label class="form-label" for="inputPresupuestoAnual">
+            <span>Presupuesto Anual Límite (Ceiling)</span>
+            <span class="label-hint">Sincronizado con semanal × semanas</span>
+          </label>
+          <div class="input-group">
+            <span class="input-prefix">€</span>
+            <input 
+              type="number" 
+              id="inputPresupuestoAnual" 
+              class="form-input form-input-number" 
+              value="31200.00" 
+              step="100" 
+              min="1"
+              placeholder="31200.00">
+            <span class="input-suffix">/ año</span>
+          </div>
+        </div>
+
+        <!-- Caja de Control Estricto de Presupuesto -->
+        <div class="budget-status-box">
+          <div class="budget-status-header">
+            <span style="font-weight: 700; font-size: 0.85rem;">Control Presupuestario Anual</span>
+            <span id="budgetStatusBadge" class="badge badge-success">🛡️ Presupuesto respetado</span>
+          </div>
+
+          <div class="budget-progress-track">
+            <div id="budgetProgressBar" class="budget-progress-bar" style="width: 100%;"></div>
+          </div>
+
+          <div class="budget-numbers-row">
+            <span>Presupuesto Límite: <strong id="budgetCeilingVal" class="col-mono">31.200,00 €</strong></span>
+            <span>Coste Calculado: <strong id="budgetCostVal" class="col-mono">31.200,00 €</strong></span>
+            <span>Margen: <strong id="budgetMarginVal" class="col-mono text-success">+0,00 €</strong></span>
+          </div>
+
+          <div class="strict-mode-toggle">
+            <label for="strictCeilingToggle" style="cursor: pointer; display: flex; align-items: center; gap: 0.5rem;">
+              <input type="checkbox" id="strictCeilingToggle" checked>
+              <span><strong>Restricción estricta anti-desbordamiento</strong> (garantiza que el coste redondeado no supere el límite anual)</span>
+            </label>
+          </div>
+        </div>
+
+      </div>
+
+      <!-- Card 2: Ponderaciones y Pesos por Tipo de Día -->
+      <div class="card">
+        <div class="card-header">
+          <div>
+            <h2 class="card-title">⚖️ Coeficientes y Ponderaciones</h2>
+            <p class="card-subtitle">Ajusta de forma interactiva el peso relativo asignado a cada tipo de jornada de guardia</p>
+          </div>
+          <div class="pill-selector" style="margin-top: 0;">
+            <button type="button" class="pill-btn preset-btn active" data-preset="recomendado">Recomendado</button>
+            <button type="button" class="pill-btn preset-btn" data-preset="equitativo">Equitativo (1:1:1)</button>
+            <button type="button" class="pill-btn preset-btn" data-preset="festivos">Alta Festivos</button>
+            <button type="button" class="pill-btn preset-btn" data-preset="cierres">Prioridad Cierres</button>
+          </div>
+        </div>
+
+        <!-- Control Día Normal -->
+        <div class="weight-control-card">
+          <div class="weight-header">
+            <div class="weight-title">
+              <span class="badge badge-normal">🔵 Día Normal</span>
+              <span>Lunes a domingo estándar</span>
+            </div>
+            <span class="weight-badge-days">327 días (89,6% del año)</span>
+          </div>
+          <div class="weight-inputs-row">
+            <input 
+              type="range" 
+              id="sliderWeight_normal" 
+              class="range-slider slider-normal" 
+              min="0.2" 
+              max="3.0" 
+              step="0.05" 
+              value="1.00">
+            <input 
+              type="number" 
+              id="numWeight_normal" 
+              class="weight-number-input" 
+              min="0.1" 
+              max="5.0" 
+              step="0.05" 
+              value="1.00">
+          </div>
+        </div>
+
+        <!-- Control Día de Cierre / Vacaciones Obligatorias -->
+        <div class="weight-control-card">
+          <div class="weight-header">
+            <div class="weight-title">
+              <span class="badge badge-cierre">🟠 Vacaciones / Cierre</span>
+              <span>Cierre energético o vacación fijada</span>
+            </div>
+            <span class="weight-badge-days">24 días (6,6% del año)</span>
+          </div>
+          <div class="weight-inputs-row">
+            <input 
+              type="range" 
+              id="sliderWeight_cierre" 
+              class="range-slider slider-cierre" 
+              min="0.5" 
+              max="4.0" 
+              step="0.05" 
+              value="1.30">
+            <input 
+              type="number" 
+              id="numWeight_cierre" 
+              class="weight-number-input" 
+              min="0.1" 
+              max="5.0" 
+              step="0.05" 
+              value="1.30">
+          </div>
+        </div>
+
+        <!-- Control Día Festivo -->
+        <div class="weight-control-card">
+          <div class="weight-header">
+            <div class="weight-title">
+              <span class="badge badge-festivo">🟣 Día Festivo</span>
+              <span>Nacional, autonómico, local y universidad</span>
+            </div>
+            <span class="weight-badge-days">14 días (3,8% del año)</span>
+          </div>
+          <div class="weight-inputs-row">
+            <input 
+              type="range" 
+              id="sliderWeight_festivo" 
+              class="range-slider slider-festivo" 
+              min="0.5" 
+              max="5.0" 
+              step="0.05" 
+              value="1.80">
+            <input 
+              type="number" 
+              id="numWeight_festivo" 
+              class="weight-number-input" 
+              min="0.1" 
+              max="5.0" 
+              step="0.05" 
+              value="1.80">
+          </div>
+        </div>
+
+      </div>
+
+    </section>
+
+    <!-- Franja de Tarifas Resultantes y Arquetipos -->
+    <section class="rates-strip-card">
+      <div class="card-header">
+        <div>
+          <h2 class="card-title">📈 Precios Unitarios Resultantes en Tiempo Real</h2>
+          <p class="card-subtitle">Valor calculado distribuyendo el presupuesto anual entre la suma ponderada del año</p>
+        </div>
+        <span class="badge badge-subtle" id="hintBaseFormula">Σ ponderada: 383.40 pts</span>
+      </div>
+
+      <div class="rates-grid">
+        <!-- Valor Base -->
+        <div class="rate-box rate-box-base">
+          <span class="rate-label">Valor Base Unitario (V<sub>base</sub>)</span>
+          <div class="rate-value" id="valBaseGuardia">81,38 €</div>
+          <span class="rate-formula-hint">P<sub>anual</sub> / Σ (días × peso)</span>
+        </div>
+
+        <!-- Precio Normal -->
+        <div class="rate-box rate-box-normal">
+          <span class="rate-label">Precio Día Normal</span>
+          <div class="rate-value" id="valPrecioNormal">81,38 €</div>
+          <span class="rate-formula-hint">V<sub>base</sub> × peso normal</span>
+        </div>
+
+        <!-- Precio Cierre -->
+        <div class="rate-box rate-box-cierre">
+          <span class="rate-label">Precio Día Cierre / Vac.</span>
+          <div class="rate-value" id="valPrecioCierre">105,79 €</div>
+          <span class="rate-formula-hint">V<sub>base</sub> × peso cierre</span>
+        </div>
+
+        <!-- Precio Festivo -->
+        <div class="rate-box rate-box-festivo">
+          <span class="rate-label">Precio Día Festivo</span>
+          <div class="rate-value" id="valPrecioFestivo">146,48 €</div>
+          <span class="rate-formula-hint">V<sub>base</sub> × peso festivo</span>
+        </div>
+      </div>
+
+      <!-- Arquetipos de semana para referencia inmediata -->
+      <div class="archetypes-bar" id="archetypesContainer">
+        <!-- Generado dinámicamente -->
+      </div>
+    </section>
+
+    <!-- Pestañas de Navegación -->
+    <div class="tabs-container">
+      <nav class="tabs-nav" aria-label="Secciones">
+        <button type="button" class="tab-btn active" data-tab="tab-calendar">
+          📅 Calendario Anual Interactivo
+        </button>
+        <button type="button" class="tab-btn" data-tab="tab-weeks">
+          📋 Listado y Comparador de Semanas (53)
+        </button>
+        <button type="button" class="tab-btn" data-tab="tab-audit">
+          📊 Conciliación Presupuestaria y Auditoría
+        </button>
+      </nav>
+
+      <!-- PESTAÑA 1: CALENDARIO ANUAL + INSPECTOR DE SEMANA -->
+      <div class="tab-content active" id="tab-calendar">
+        
+        <div class="calendar-legend-bar">
+          <span style="font-weight: 700;">Leyenda:</span>
+          <div class="legend-item">
+            <span class="legend-indicator legend-normal"></span>
+            <span>Día Normal (Estándar)</span>
+          </div>
+          <div class="legend-item">
+            <span class="legend-indicator legend-cierre"></span>
+            <span>Cierre Energético / Vacaciones Obligatorias</span>
+          </div>
+          <div class="legend-item">
+            <span class="legend-indicator legend-festivo"></span>
+            <span>Día Festivo Oficial</span>
+          </div>
+          <div class="legend-item">
+            <span class="legend-indicator legend-selected"></span>
+            <span>Semana Seleccionada</span>
+          </div>
+          <span style="margin-left: auto; color: var(--text-muted); font-size: 0.775rem;">
+            💡 Haz clic en cualquier día o número de semana (W) para ver su desglose detallado
+          </span>
+        </div>
+
+        <div class="calendar-layout">
+          <!-- Cuadrícula de 12 Meses -->
+          <div class="months-grid" id="monthsContainer">
+            <!-- 12 meses generados por app.js -->
+          </div>
+
+          <!-- Panel Lateral: Inspector Detallado de Semana -->
+          <aside class="week-inspector-card">
+            <div class="inspector-header">
+              <div>
+                <div class="inspector-week-badge" id="inspectorWeekBadge">
+                  Semana 14 <span class="badge badge-danger">Semana Santa</span>
+                </div>
+                <div class="inspector-dates-range" id="inspectorDatesRange">
+                  30 mar - 05 abr (2026)
+                </div>
+              </div>
+              <div class="inspector-nav-btns">
+                <button type="button" class="btn btn-sm btn-icon" id="btnPrevWeek" title="Semana anterior">◀</button>
+                <button type="button" class="btn btn-sm btn-icon" id="btnNextWeek" title="Semana siguiente">▶</button>
+              </div>
+            </div>
+
+            <!-- Importe total de la semana -->
+            <div class="inspector-amount-box">
+              <div class="inspector-amount-label">Compensación Total de la Semana</div>
+              <div class="inspector-amount-value" id="inspectorAmountValue">773,08 €</div>
+              <div class="inspector-amount-diff" id="inspectorAmountDiff">+173,08 € (+28.8%) vs media semanal</div>
+            </div>
+
+            <div style="display: flex; justify-content: space-between; align-items: center;">
+              <span style="font-size: 0.85rem; font-weight: 700;">Desglose Día por Día</span>
+              <span class="badge badge-subtle" id="inspectorArchetypePill">Semana Santa / Intensiva</span>
+            </div>
+
+            <!-- Lista de los 7 días de la semana -->
+            <div class="inspector-days-list" id="inspectorDaysList">
+              <!-- Días generados dinámicamente -->
+            </div>
+
+          </aside>
+        </div>
+
+      </div>
+
+      <!-- PESTAÑA 2: LISTADO Y COMPARADOR DE TODAS LAS SEMANAS -->
+      <div class="tab-content" id="tab-weeks">
+        
+        <div class="table-toolbar">
+          <div class="table-filters">
+            <button type="button" class="pill-btn filter-pill-btn active" data-filter="all">
+              Todas (<span id="countFilterAll">53</span>)
+            </button>
+            <button type="button" class="pill-btn filter-pill-btn" data-filter="standard">
+              Semanas Estándar (<span id="countFilterStd">38</span>)
+            </button>
+            <button type="button" class="pill-btn filter-pill-btn" data-filter="festivos">
+              Con Festivos (<span id="countFilterFest">10</span>)
+            </button>
+            <button type="button" class="pill-btn filter-pill-btn" data-filter="cierres">
+              Con Cierres (<span id="countFilterCier">8</span>)
+            </button>
+          </div>
+
+          <div class="table-search-group">
+            <label for="selectWeeksSort" style="font-size: 0.8rem; font-weight: 600; color: var(--text-secondary);">Ordenar por:</label>
+            <select id="selectWeeksSort" class="form-input" style="padding: 0.35rem 0.65rem; font-size: 0.85rem; border: 1px solid var(--border-color); border-radius: var(--radius-md); background: var(--bg-surface);">
+              <option value="chrono">Cronológico (Semana 1 a 53)</option>
+              <option value="price-desc">Mayor Compensación Semanal (€)</option>
+              <option value="price-asc">Menor Compensación Semanal (€)</option>
+            </select>
+          </div>
+        </div>
+
+        <div class="data-table-container">
+          <table class="data-table">
+            <thead>
+              <tr>
+                <th>Semana</th>
+                <th>Periodo</th>
+                <th>Arquetipo / Composición</th>
+                <th>Desglose Días</th>
+                <th>Total Semana (€)</th>
+                <th>Desviación vs Media (€)</th>
+                <th>Acción</th>
+              </tr>
+            </thead>
+            <tbody id="weeksTableBody">
+              <!-- Semanas generadas dinámicamente -->
+            </tbody>
+          </table>
+        </div>
+
+      </div>
+
+      <!-- PESTAÑA 3: CONCILIACIÓN PRESUPUESTARIA Y AUDITORÍA -->
+      <div class="tab-content" id="tab-audit">
+        
+        <div class="audit-grid">
+          
+          <!-- Tabla de conciliación -->
+          <div class="card">
+            <div class="card-header">
+              <div>
+                <h2 class="card-title">📐 Matriz de Conciliación Presupuestaria</h2>
+                <p class="card-subtitle">Verificación formal de la distribución y cumplimiento estricto del límite presupuestario</p>
+              </div>
+            </div>
+
+            <div class="data-table-container" style="border: none; box-shadow: none;">
+              <table class="data-table">
+                <thead>
+                  <tr>
+                    <th>Tipo de Día</th>
+                    <th>Nº Días</th>
+                    <th>Ponderación</th>
+                    <th>Puntos Ponderados</th>
+                    <th>Precio Teórico</th>
+                    <th>Precio Nómina</th>
+                    <th>Subtotal Anual (€)</th>
+                    <th>% Presupuesto</th>
+                  </tr>
+                </thead>
+                <tbody id="auditTableBody">
+                  <!-- Filas generadas dinámicamente -->
+                </tbody>
+                <tfoot>
+                  <tr style="background-color: var(--bg-subtle); font-weight: 800; border-top: 2px solid var(--border-color);">
+                    <td>TOTAL ANUAL</td>
+                    <td id="auditTotalDays" class="col-mono">365</td>
+                    <td>—</td>
+                    <td id="auditTotalPts" class="col-mono">383.40</td>
+                    <td>—</td>
+                    <td>—</td>
+                    <td id="auditTotalCost" class="col-mono">31.200,00 €</td>
+                    <td class="col-mono">100.00%</td>
+                  </tr>
+                </tfoot>
+              </table>
+            </div>
+
+            <div style="margin-top: 1rem; padding: 0.85rem; background-color: var(--bg-subtle); border-radius: var(--radius-md); font-size: 0.825rem; display: flex; justify-content: space-between; align-items: center;">
+              <span>Presupuesto Anual Límite Establecido: <strong id="auditTotalCeiling" class="col-mono">31.200,00 €</strong></span>
+              <span>Balance de Seguridad: <strong id="auditTotalMargin" class="col-mono text-success">+0,00 €</strong></span>
+            </div>
+          </div>
+
+          <!-- Explicación de la Lógica Matemática -->
+          <div class="formula-card">
+            <h2 class="card-title">📖 Fundamento Matemático del Reparto</h2>
+            <p style="font-size: 0.85rem; color: var(--text-secondary); margin-top: 0.5rem;">
+              Para garantizar que el coste total anual <strong>nunca supere el presupuesto anual asignado</strong>, el presupuesto se distribuye proporcionalmente utilizando un sistema de cuotas ponderadas:
+            </p>
+
+            <div class="math-display">
+              1. Suma Ponderada (S):<br>
+              &nbsp;&nbsp;&nbsp;S = Σ (N<sub>i</sub> × w<sub>i</sub>)<br><br>
+              2. Valor Monetario Base (V<sub>base</sub>):<br>
+              &nbsp;&nbsp;&nbsp;V<sub>base</sub> = Presupuesto_Anual / S<br><br>
+              3. Precio Unitario Día Tipo i (P<sub>i</sub>):<br>
+              &nbsp;&nbsp;&nbsp;P<sub>i</sub> = V<sub>base</sub> × w<sub>i</sub><br><br>
+              4. Coste Total Anual:<br>
+              &nbsp;&nbsp;&nbsp;Coste = Σ (N<sub>i</sub> × P<sub>i</sub>) ≡ Presupuesto_Anual
+            </div>
+
+            <p style="font-size: 0.825rem; color: var(--text-muted);">
+              <strong>Restricción estricta de no desbordamiento:</strong> Al redondear los precios a dos decimales (céntimos de euro para liquidación en nómina), el sistema cuenta con un algoritmo de ajuste fino que garantiza que el sumatorio resultante sea estrictamente inferior o igual al presupuesto fijado.
+            </p>
+          </div>
+
+        </div>
+
+      </div>
+
+    </div>
+
+  </div>
+
+  <!-- Scripts en orden de dependencia -->
+  <script src="js/default-data.js"></script>
+  <script src="js/calculator.js"></script>
+  <script src="js/calendar.js"></script>
+  <script src="js/app.js"></script>
+</body>
+</html>
